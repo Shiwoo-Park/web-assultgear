@@ -1,0 +1,3 @@
+# Module assultgearsw
+# RPC service class, partial path of RPC policy file
+com.client.GreetingService, 80E424D3A8F562CEFD72A3DB38E2C825.gwt.rpc

@@ -1,0 +1,511 @@
+package com.client;
+
+import java.util.ArrayList;
+import java.util.Vector;
+
+import com.google.gwt.user.client.Timer;
+import com.google.gwt.user.client.Window;
+import com.netmarble.ccsgwt.lib.CCDirector;
+import com.netmarble.ccsgwt.lib.CCFunction;
+import com.netmarble.ccsgwt.lib.actions.interval.CCMoveTo;
+import com.netmarble.ccsgwt.lib.actions.interval.CCRepeatForever;
+import com.netmarble.ccsgwt.lib.actions.interval.CCRotateBy;
+import com.netmarble.ccsgwt.lib.actions.progress_timer.CCProgressTo;
+import com.netmarble.ccsgwt.lib.cocoa.CCPoint;
+import com.netmarble.ccsgwt.lib.cocoa.CCSize;
+import com.netmarble.ccsgwt.lib.label_nodes.CCLabelTTF;
+import com.netmarble.ccsgwt.lib.layers_scenes_transitions_nodes.CCLayer;
+import com.netmarble.ccsgwt.lib.menu_nodes.CCMenu;
+import com.netmarble.ccsgwt.lib.menu_nodes.CCMenuItemImage;
+import com.netmarble.ccsgwt.lib.misc_nodes.CCProgressTimer;
+import com.netmarble.ccsgwt.lib.platform.CCCommon;
+import com.netmarble.ccsgwt.lib.sprite_nodes.CCSprite;
+import com.netmarble.ccsgwt.lib.touch_dispatcher.CCTouch;
+
+public class GameLayer extends CCLayer {
+	// ********* Data ********* 
+	private boolean myturn = false;
+	private boolean look_right = true;
+	private int time_remain = 0;
+	private float wind_value = 0;
+	private CCSize win_size = null;
+	private Missile ms_data = null;
+	private Vector<Player> players = new Vector<Player>();
+
+	// ********* Rendering ********* 
+	// Upper interface
+	private CCLabelTTF time_label = null;
+	private Timer timer = null;
+	private Timer ms_timer = null;
+	private CCSprite background = null;
+	private CCSprite ground = null;
+	private CCSprite stat_bar = null;
+	private CCProgressTo progressTo = null;
+	private CCProgressTimer p_progTimer = null;		// power
+	private CCProgressTimer f_progTimer = null;		// fuel
+	private CCProgressTimer e_progTimer = null;		// energy
+
+	// Main area
+	private CCSprite ms_spr = null;		// missile sprite (only one exist)
+	private double accel_x;
+	private double accel_y;
+	private int gravity;
+	private CCSprite fire_arr = null;
+	
+	// lower interface	
+	private CCLabelTTF wind_label = null;	
+	private CCSprite wind_bar = null;
+	private CCSprite wind = null;
+	private CCSprite power_bar = null;
+
+	// Control
+	private boolean btn_pressed = false; 
+	private CCSprite up_arr = null;
+	private CCSprite down_arr = null;
+	private CCSprite left_arr = null;
+	private CCSprite right_arr = null;
+	private CCSprite fire_btn = null;
+	
+	// Points
+	private CCPoint[] points = {
+			new CCPoint(200,55),	// 0:wind bar
+			new CCPoint(300,30),	// 1:power bar
+			new CCPoint(280,54),	// 2:wind label
+			new CCPoint(690,100),	// 3:up arrow btn
+			new CCPoint(690,40),	// 4:down arrow btn
+			new CCPoint(630,50),	// 5:left arrow btn
+			new CCPoint(750,50),	// 6:right arrow btn
+			new CCPoint(510,50),	// 7:fire btn
+			new CCPoint(131,565),	// 8:state bar
+			new CCPoint(400,570)	// 9:time label			
+	};
+	
+	// ~~~~~~~~~~~~~~~TEST~~~~~~~~~~~~~~~ 
+	CCSprite mytank = null;
+	
+	public GameLayer(){
+		CCCommon.log("Gamelayer - constructor");
+		this.setTouchEnabled(true);
+		// Data should be initialized by Server Data
+		this.init();
+	}
+	
+	public boolean init() {
+		if (!super.init()) {
+			return false;
+		}
+		CCCommon.log("Gamelayer - init");
+		// Data can be initialized by local information
+		win_size = CCDirector.getInstance().getWinSize();
+		background = CCSprite.create("game_bg");
+		background.setPosition(new CCPoint(win_size.getWidth()/2,win_size.getHeight()/2));
+		ground = CCSprite.create("ground");
+		ground.setPosition(new CCPoint(win_size.getWidth()/2,win_size.getHeight()/2));
+		progressTo = CCProgressTo.create(2, 100);
+		gravity = 4;
+		
+		this.setupInterfaces();
+
+		CCCommon.log("Gamelayer - init over");
+	    return true;
+	}
+	
+	public void onEnter(){
+		super.onEnter();
+		CCCommon.log("Gamelayer - onEnter");
+		// render all elements. (position, addchild)
+		
+		// Test
+		mytank = CCSprite.create("tank1");
+		mytank.setPosition(new CCPoint(300, 165));
+		fire_arr = CCSprite.create("fire_arrow");
+		fire_arr.setPosition(new CCPoint(300, 165));
+		this.fire_arr.setAnchorPoint(new CCPoint(0,0.5f));
+		this.addChild(mytank,1);
+		this.addChild(fire_arr,2);
+		setWind(-5);
+		startMyTurn();
+		
+		CCCommon.log("Gamelayer - onEnter over");
+		
+	}
+	
+	void setupInterfaces(){
+		CCCommon.log("Gamelayer - setup interface");
+		// Status
+		stat_bar =  CCSprite.create("stat_bar");
+		stat_bar.setPosition(points[8]);
+    	f_progTimer = CCProgressTimer.create(CCSprite.create("fuel"));
+    	f_progTimer.setType(CCProgressTimer.PROGRESS_TIMER_TYPE_BAR);
+    	f_progTimer.setMidpoint(new CCPoint(0,0)); 		// This makes bar grow from left side
+    	f_progTimer.setBarChangeRate(new CCPoint(1,0));	// This allow change on X-axis not Y
+    	f_progTimer.setPosition(new CCPoint(points[8].getXPos(),points[8].getYPos()-15));
+    	e_progTimer = CCProgressTimer.create(CCSprite.create("energy"));
+    	e_progTimer.setType(CCProgressTimer.PROGRESS_TIMER_TYPE_BAR);
+    	e_progTimer.setMidpoint(new CCPoint(0,0)); 		// This makes bar grow from left side
+    	e_progTimer.setBarChangeRate(new CCPoint(1,0));	// This allow change on X-axis not Y
+    	e_progTimer.setPosition(new CCPoint(points[8].getXPos(),points[8].getYPos()+15));
+    	CCCommon.log("Gamelayer - setup interface : status...");
+    	
+    	// Bottom Gauge
+		wind_bar = CCSprite.create("wind_gauge");
+		wind_bar.setPosition(points[0]);
+		wind = CCSprite.create("wind");
+		wind_label = CCLabelTTF.create("WIND", "Arial", 15);
+		wind_label.setPosition(points[2]);		
+		power_bar = CCSprite.create("power_gauge");
+		power_bar.setPosition(points[1]);
+    	p_progTimer = CCProgressTimer.create(CCSprite.create("power"));
+    	p_progTimer.setType(CCProgressTimer.PROGRESS_TIMER_TYPE_BAR);
+    	p_progTimer.setMidpoint(new CCPoint(0,0)); 		// This makes bar grow from left side
+    	p_progTimer.setBarChangeRate(new CCPoint(1,0));	// This allow change on X-axis not Y
+    	p_progTimer.setPosition(points[1]);
+    	CCCommon.log("Gamelayer - setup interface : bottom gauge...");
+
+    	// Control Buttons
+    	up_arr = CCSprite.create("up_arrow");
+	    up_arr.setPosition(points[3]);
+	    down_arr = CCSprite.create("down_arrow");
+	    down_arr.setPosition(points[4]);
+	    left_arr = CCSprite.create("left_arrow");
+	    left_arr.setPosition(points[5]);
+	    right_arr = CCSprite.create("right_arrow");
+	    right_arr.setPosition(points[6]);
+	    fire_btn = CCSprite.create("fire_btn");
+	    fire_btn.setPosition(points[7]);
+	    CCCommon.log("Gamelayer - setup interface : Control btns...");
+	    
+	    // Other Buttons
+		CCFunction menuCallback = new CCFunction() {
+			@Override
+			public void call() {
+				startMyTurn();
+			}
+		};
+		CCFunction skipCallback = new CCFunction() {
+			@Override
+			public void call() {
+				Window.alert("skip turn");
+			}
+		};
+		
+		CCMenuItemImage menu = CCMenuItemImage.create("menu_btn", "menu_btn", this, menuCallback);
+		CCMenuItemImage skip = CCMenuItemImage.create("skip_btn", "skip_btn",this, skipCallback);
+		CCMenu btns = null;
+		btns = CCMenu.create(menu,skip,null);
+		btns.setPosition(new CCPoint(690,570));
+		menu.setPosition(new CCPoint(0,0));
+		skip.setPosition(new CCPoint(65,0));
+		CCCommon.log("Gamelayer - setup interface : other btns...");
+		
+		// Add all elements
+		this.addChild(background,-1);
+		this.addChild(ground,0);
+		this.addChild(stat_bar,1);
+		this.addChild(e_progTimer,2);
+		this.addChild(f_progTimer, 2);
+		this.addChild(power_bar, 1);
+		this.addChild(p_progTimer,2);
+		this.addChild(wind_bar, 1);
+		this.addChild(fire_btn,1);
+		this.addChild(up_arr, 1);
+		this.addChild(down_arr, 1);
+		this.addChild(left_arr, 1);
+		this.addChild(right_arr,1);
+		this.addChild(btns, 1);
+		
+		CCCommon.log("Gamelayer - setup interface over");
+	}
+	
+	void addPlayers(){
+		// check myself and refresh status data
+		for(int i=0;i<players.size();i++){
+			
+		}
+	}
+	
+	void refreshPlayers(){
+		
+	}
+	
+	void refreshEnv(){
+		
+	}
+	
+	void startMyTurn(){
+		//setup wind, timer start, 
+		// give control
+		myturn = true;
+		
+		// Set Time Label
+		time_remain = 30;
+		if(time_label==null){
+			time_label = CCLabelTTF.create(String.valueOf(time_remain), "Arial", 45);
+			time_label.setPosition(points[9]);
+		    this.addChild(time_label);
+		}else{
+			time_label.setString(String.valueOf(time_remain));
+		}
+	    showTimeRemain();	// timer start
+	}
+	
+	void turnOver(){
+		// send server my data
+		// Data : fire_arr angle, power value, wind value, remaining time, new point
+		
+		this.myturn = false;
+		this.timer.cancel();
+		timer = null;
+		time_label.setString("TurnOver");	
+	}
+	
+	private void showTimeRemain(){
+		// show remaining time in my turn.
+	    // count down start
+		if(timer != null){
+			timer.cancel();
+			timer = null;
+		}
+		timer = new Timer() {
+			@Override
+			public void run() {
+				// TODO Auto-generated method stub
+				time_label.setString(String.valueOf(time_remain));
+				time_remain -= 1;
+				if(time_remain<0){
+					turnOver();
+				}
+			}
+		};
+		timer.scheduleRepeating(1000);
+	}
+
+	public void fire(){
+		CCCommon.log("Fire!!!!");
+		// fire point = my tank position
+		// fire angle = fire arr angle
+		// send Msg to server directly
+		float ang;
+		if(look_right)
+			ang = - fire_arr.getRotation();
+		else
+			ang = fire_arr.getRotation();
+		Missile ms = new Missile(1, mytank.getPosition(), p_progTimer.getPercentage(),ang );
+		launchMissile(ms, wind_value);
+		CCCommon.log("power :"+String.valueOf(p_progTimer.getPercentage()));
+		// turn over
+		this.turnOver();
+		CCCommon.log("Fire-ended!!!!");
+	}
+	
+	public boolean ifPointInSector(CCPoint point,CCPoint center,float w_half,float h_half){
+		float xpos = point.getXPos();
+		float ypos = point.getYPos();
+		float sxpos = center.getXPos();
+		float sypos = center.getYPos();
+		
+		if((xpos>sxpos-w_half)&&(xpos<sxpos+w_half)&&(ypos>sypos-h_half)&&(ypos<sypos+h_half)){
+			return true;
+		}else
+			return false;
+	}
+	
+	public void setWind(float w_value){
+		CCCommon.log("set Wind");
+		if(w_value==0)
+			return;
+		wind_value = w_value;
+    	CCProgressTimer windTimer = CCProgressTimer.create(wind);
+		if(w_value<0){
+			//grow left        	
+			windTimer.setMidpoint(new CCPoint(1,0)); 		// This makes bar grow from left side
+        	windTimer.setPosition(new CCPoint(points[0].getXPos()-25,points[0].getYPos()));
+        	w_value = -w_value;
+		}else{
+			//grow right
+			windTimer.setMidpoint(new CCPoint(0,0)); 		// This makes bar grow from left side
+        	windTimer.setPosition(new CCPoint(points[0].getXPos()+25,points[0].getYPos()));
+        }
+		windTimer.setType(CCProgressTimer.PROGRESS_TIMER_TYPE_BAR);
+		windTimer.setBarChangeRate(new CCPoint(1,0));	// This allow change on X-axis not Y
+    	this.addChild(windTimer,2);
+    	windTimer.setPercentage(w_value*10);
+    	CCCommon.log("set Wind-over");
+	}
+	
+	public void launchMissile(Missile ms, float new_wind){
+		CCCommon.log("launch Ms");
+		wind_value = new_wind;
+		ms_data = new Missile(ms.getId(), ms.pos, ms.power, ms.angle);	
+		accel_x = (ms_data.power*Math.cos(Math.toRadians((double)ms_data.angle)))/2;
+		if(!look_right)
+			accel_x = - accel_x;
+		accel_y = (ms_data.power*Math.sin(Math.toRadians((double)ms_data.angle)));
+		ms_spr = ms.getSpr();
+		ms_spr.setPosition(ms_data.pos);
+		this.addChild(ms_spr, 3);
+		
+		CCCommon.log("launch Ms-over");
+
+		ms_timer = new Timer() {
+			@Override
+			public void run() {
+				// TODO Auto-generated method stub
+				accel_x += (wind_value/5);			// adjust wind power
+				accel_y -= (gravity);					// adjust gravity
+				ms_data.pos.setPos(ms_data.pos.getXPos()+(int)accel_x, ms_data.pos.getYPos()+(int)accel_y);
+				CCMoveTo move = CCMoveTo.create(0.05f, ms_data.pos);
+				ms_spr.runAction(move);
+				if(ms_data.pos.getYPos()<150){
+					burstOnPoint(ms_data.getId(), ms_data.pos);
+				}
+				time_label.setString(String.valueOf(time_remain));
+			}
+		};
+		ms_timer.scheduleRepeating(100);
+		CCCommon.log("launch Ms-over");
+	}
+	
+	void burstOnPoint(int ms_id, CCPoint point){
+		// send msg to server
+		CCCommon.log("burst on point");
+		ms_timer.cancel();
+		ms_timer = null;
+		// burst Animation comes here 
+		//this.removeChild(ms_spr, true);
+	}
+	
+	void removeMissile(){
+		this.removeChild(ms_spr, true);
+	}
+	
+	@Override
+	public <T> void onTouchesBegan(ArrayList<CCTouch> touches, T event) {
+        super.onTouchesBegan(touches, event);
+		CCTouch touch = touches.get(0);
+        CCPoint loc = touch.getLocation();
+        CCCommon.log("touch-began");
+        if(myturn){
+	        if(ifPointInSector(loc, points[7], 37, 35)){
+	        	CCCommon.log("fire");
+	        	this.removeChild(p_progTimer, true);
+	        	p_progTimer = null;
+	        	this.p_progTimer = CCProgressTimer.create(CCSprite.create("power"));
+	        	this.p_progTimer.setType(CCProgressTimer.PROGRESS_TIMER_TYPE_BAR);
+	        	this.p_progTimer.setMidpoint(new CCPoint(0,0)); 		// This makes bar grow from left side
+	        	this.p_progTimer.setBarChangeRate(new CCPoint(1,0));	// This allow change on X-axis not Y
+	        	this.p_progTimer.setPosition(points[1]);
+	        	this.addChild(p_progTimer,2);	// power
+	        	// Bar Progress Start
+	        	p_progTimer.runAction(progressTo);
+	        	btn_pressed = true;
+	        }else if(ifPointInSector(loc, points[3], 29, 28)){
+	        	// Angle up
+	        	CCCommon.log("up");
+	        	CCRotateBy rotate = null;
+	        	mytank.stopAllActions();
+	        	if(fire_arr.isFlippedX())
+	        		rotate = CCRotateBy.create(10, 360);
+	        	else
+	        		rotate = CCRotateBy.create(10, -360);
+	        	fire_arr.runAction(CCRepeatForever.create(rotate));
+	        	btn_pressed = true;
+	        }else if(ifPointInSector(loc, points[4], 29, 28)){
+	        	// Angle down
+	        	CCCommon.log("down");
+	        	CCRotateBy rotate = null;
+	        	mytank.stopAllActions();
+	        	if(fire_arr.isFlippedX())
+	        		rotate = CCRotateBy.create(10, -360);
+	        	else
+	        		rotate = CCRotateBy.create(10, 360);
+	        	fire_arr.runAction(CCRepeatForever.create(rotate));
+	        	btn_pressed = true;
+	        }else if(ifPointInSector(loc, points[5], 27, 37)){
+	        	// go left
+	        	CCCommon.log("left");
+	        	this.fire_arr.setAnchorPoint(new CCPoint(1,0.5f));
+	        	fire_arr.setFlipX(true);
+	        	if(look_right){
+	        		CCCommon.log("fire arrow angle:" + String.valueOf(fire_arr.getRotation()));
+	        		fire_arr.setRotation(-1*fire_arr.getRotation());
+	        		look_right = false;
+	        	}
+	        	mytank.setFlipX(true);
+	        	CCPoint tank_pos = mytank.getPosition();
+	        	CCMoveTo moveLeft1 = CCMoveTo.create(tank_pos.getXPos()/15, new CCPoint(0,tank_pos.getYPos()));
+	        	CCMoveTo moveLeft2 = CCMoveTo.create(tank_pos.getXPos()/15, new CCPoint(0,tank_pos.getYPos()));
+	        	mytank.runAction(CCRepeatForever.create(moveLeft1));
+	        	fire_arr.runAction(CCRepeatForever.create(moveLeft2));
+	        	btn_pressed = true;
+	        }else if(ifPointInSector(loc, points[6], 27, 37)){
+	        	CCCommon.log("right");
+	        	// go right
+	        	if(!look_right){
+	        		CCCommon.log("fire arrow angle:" + String.valueOf(fire_arr.getRotation()));
+	        		fire_arr.setRotation(-fire_arr.getRotation());
+	        		look_right = true;
+	        	}
+	        	mytank.setFlipX(false);
+	        	fire_arr.setFlipX(false);
+	        	this.fire_arr.setAnchorPoint(new CCPoint(0,0.5f));
+	        	CCPoint tank_pos = mytank.getPosition();
+	        	CCMoveTo moveRight1 = CCMoveTo.create((win_size.getWidth()-tank_pos.getXPos())/15, new CCPoint(win_size.getWidth(),tank_pos.getYPos()));
+	        	CCMoveTo moveRight2 = CCMoveTo.create((win_size.getWidth()-tank_pos.getXPos())/15, new CCPoint(win_size.getWidth(),tank_pos.getYPos()));
+	        	mytank.runAction(CCRepeatForever.create(moveRight1));
+	        	fire_arr.runAction(CCRepeatForever.create(moveRight2));
+	        	btn_pressed = true;
+	        }
+        }
+	}
+	
+	@Override
+	public <T> void onTouchesMoved(ArrayList<CCTouch> touches, T event) {
+        super.onTouchesMoved(touches, event);
+		CCTouch touch = touches.get(0);
+        CCPoint loc = touch.getLocation();
+        
+        if(ifPointInSector(loc, points[7], 37, 35)){
+        }else if(ifPointInSector(loc, points[3], 29, 28)){
+        }else if(ifPointInSector(loc, points[4], 29, 28)){
+        }else if(ifPointInSector(loc, points[5], 27, 37)){
+        }else if(ifPointInSector(loc, points[6], 27, 37)){        	
+        }else{
+        	if(btn_pressed){
+        		btn_pressed = false;
+            	fire_arr.stopAllActions();
+            	mytank.stopAllActions();
+        	}
+        }
+	}	
+	
+    @Override
+	public <T> void onTouchesEnded(ArrayList<CCTouch>touches, T event){
+    	super.onTouchesEnded(touches, event);
+		CCTouch touch = touches.get(0);
+        CCPoint loc = touch.getLocation();
+        CCCommon.log("touch-end");
+        if(myturn){
+	        if(ifPointInSector(loc, points[7], 37, 35)){
+	        	CCCommon.log("fire");
+	        	//power gauge stop and FIRE
+	        	p_progTimer.pauseSchedulerAndActions();
+	        	this.fire();
+	        }else if(ifPointInSector(loc, points[3], 29, 28)){	//up
+	        	fire_arr.stopAllActions();
+	        	CCCommon.log("fire arrow angle:" + String.valueOf(fire_arr.getRotation()));
+	        }else if(ifPointInSector(loc, points[4], 29, 28)){	//down
+	        	fire_arr.stopAllActions();
+	        	CCCommon.log("fire arrow angle:" + String.valueOf(fire_arr.getRotation()));
+	        }else if(ifPointInSector(loc, points[5], 27, 37)){	//left
+	        	mytank.stopAllActions();
+	        	fire_arr.stopAllActions();
+	        	CCCommon.log(String.valueOf(fire_arr.getRotation()));
+	        }else if(ifPointInSector(loc, points[6], 27, 37)){	//right
+	        	mytank.stopAllActions();
+	        	fire_arr.stopAllActions();
+	        	CCCommon.log(String.valueOf(fire_arr.getRotation()));
+	        }
+        }
+    }
+}
